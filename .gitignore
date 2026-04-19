@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.pyc
+
+artifacts/
+build/
+dist/
+verification_output/
+
+chromium_profile_backup.log
+ui_state.json
+ChromiumProfileBackupTool.spec
+
+Codex Skills.lnk
