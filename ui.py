@@ -118,8 +118,10 @@ class ChromiumProfileBackupApp:
         self.backup_profile_var = tk.StringVar()
         self.backup_destination_var = tk.StringVar()
         self.backup_password_var = tk.StringVar()
+        self.backup_password_hint_var = tk.StringVar()
         self.backup_scope_var = tk.StringVar(value=SCOPE_FULL)
         self.backup_exclude_sensitive_var = tk.BooleanVar(value=True)
+        self.backup_recovery_enrollment_var = tk.BooleanVar(value=False)
         self.backup_dry_run_var = tk.BooleanVar(value=False)
 
         self.restore_archive_var = tk.StringVar()
@@ -652,14 +654,31 @@ class ChromiumProfileBackupApp:
             show="*",
         ).grid(row=5, column=1, sticky="ew", pady=4)
 
+        recovery_frame = ttk.Frame(controls)
+        recovery_frame.grid(row=6, column=1, sticky="ew", pady=(4, 4))
+        recovery_frame.columnconfigure(0, weight=1)
+        ttk.Checkbutton(
+            recovery_frame,
+            text="Create offline recovery key file and emergency codes for this encrypted backup",
+            variable=self.backup_recovery_enrollment_var,
+        ).grid(row=0, column=0, sticky="w")
+
+        ttk.Label(controls, text="Password Hint (optional)").grid(
+            row=7, column=0, sticky="w", pady=4
+        )
+        ttk.Entry(
+            controls,
+            textvariable=self.backup_password_hint_var,
+        ).grid(row=7, column=1, sticky="ew", pady=4)
+
         ttk.Checkbutton(
             controls,
             text="Dry run only (show what would be backed up)",
             variable=self.backup_dry_run_var,
-        ).grid(row=6, column=1, sticky="w", pady=(8, 8))
+        ).grid(row=8, column=1, sticky="w", pady=(8, 8))
 
         actions = ttk.Frame(controls)
-        actions.grid(row=7, column=1, sticky="w")
+        actions.grid(row=9, column=1, sticky="w")
         ttk.Button(actions, text="Preview Backup", command=self.run_backup_preview).pack(
             side="left"
         )
@@ -848,6 +867,8 @@ class ChromiumProfileBackupApp:
                 "profile_dir_name": self._selected_profile_dir_name(self.backup_profile_var.get()),
                 "scope": self.backup_scope_var.get(),
                 "exclude_sensitive": bool(self.backup_exclude_sensitive_var.get()),
+                "recovery_enrollment": bool(self.backup_recovery_enrollment_var.get()),
+                "password_hint": self.backup_password_hint_var.get().strip(),
                 "dry_run": bool(self.backup_dry_run_var.get()),
             },
             "restore": {
@@ -903,6 +924,12 @@ class ChromiumProfileBackupApp:
             self.backup_scope_var.set(str(backup_state.get("scope", SCOPE_FULL)) or SCOPE_FULL)
             self.backup_exclude_sensitive_var.set(
                 bool(backup_state.get("exclude_sensitive", True))
+            )
+            self.backup_recovery_enrollment_var.set(
+                bool(backup_state.get("recovery_enrollment", False))
+            )
+            self.backup_password_hint_var.set(
+                str(backup_state.get("password_hint", "")).strip()
             )
             self.backup_dry_run_var.set(bool(backup_state.get("dry_run", False)))
             self._restore_browser_selection(
@@ -1020,7 +1047,7 @@ class ChromiumProfileBackupApp:
     def run_backup_preview(self) -> None:
         try:
             result = create_backup(self._build_backup_options(dry_run=True))
-            text = self._format_backup_preview(result.copied_files, result.warnings)
+            text = self._format_backup_preview(result.manifest, result.copied_files, result.warnings)
             self._set_text(self.backup_preview_text, text)
         except Exception as exc:
             messagebox.showerror("Backup Preview Failed", str(exc))
@@ -1029,7 +1056,11 @@ class ChromiumProfileBackupApp:
     def run_backup(self) -> None:
         try:
             result = create_backup(self._build_backup_options(dry_run=self.backup_dry_run_var.get()))
-            preview_text = self._format_backup_preview(result.copied_files, result.warnings)
+            preview_text = self._format_backup_preview(
+                result.manifest,
+                result.copied_files,
+                result.warnings,
+            )
             self._set_text(self.backup_preview_text, preview_text)
 
             if result.dry_run:
@@ -1043,7 +1074,13 @@ class ChromiumProfileBackupApp:
                 "Backup Complete",
                 "Backup created successfully.\n\n"
                 f"Archive: {result.archive_path}\n"
-                f"Manifest: {result.manifest_path}",
+                f"Manifest: {result.manifest_path}"
+                + (
+                    f"\nRecovery key: {result.recovery_key_path}\n"
+                    f"Emergency codes: {result.emergency_codes_path}"
+                    if result.recovery_key_path and result.emergency_codes_path
+                    else ""
+                ),
             )
             if result.archive_path is not None:
                 self.last_backup_folder = result.archive_path.parent
@@ -1117,6 +1154,14 @@ class ChromiumProfileBackupApp:
         if not destination_text:
             raise RuntimeError("Choose a destination folder for the backup archive.")
         destination = Path(destination_text)
+        password = self.backup_password_var.get().strip() or None
+        password_hint = self.backup_password_hint_var.get().strip() or None
+        if self.backup_recovery_enrollment_var.get() and not password:
+            raise RuntimeError(
+                "Set a backup password before enabling the offline recovery key and emergency codes."
+            )
+        if password_hint and not password:
+            raise RuntimeError("A password hint only makes sense when the backup archive is encrypted.")
 
         return BackupOptions(
             browser=browser,
@@ -1124,7 +1169,9 @@ class ChromiumProfileBackupApp:
             destination_dir=destination,
             backup_scope=self.backup_scope_var.get(),
             exclude_sensitive_data=self.backup_exclude_sensitive_var.get(),
-            password=self.backup_password_var.get().strip() or None,
+            password=password,
+            enroll_recovery_material=self.backup_recovery_enrollment_var.get(),
+            password_hint=password_hint,
             dry_run=dry_run,
         )
 
@@ -1309,11 +1356,22 @@ class ChromiumProfileBackupApp:
         widget.configure(state="disabled")
 
     @staticmethod
-    def _format_backup_preview(files: list[str], warnings: list[str]) -> str:
+    def _format_backup_preview(manifest, files: list[str], warnings: list[str]) -> str:
         lines = [
+            f"Archive encrypted: {'Yes' if manifest.encrypted else 'No'}",
+            f"Recovery enrolled: {'Yes' if manifest.recovery_enrolled else 'No'}",
+            f"Password hint stored: {'Yes' if manifest.password_hint else 'No'}",
+        ]
+        if manifest.recovery_artifacts:
+            lines.append("Recovery artifacts to create:")
+            lines.extend(f"- {entry}" for entry in manifest.recovery_artifacts)
+        lines.extend(
+            [
+                "",
             f"Files selected: {len(files)}",
             "",
-        ]
+            ]
+        )
         if warnings:
             lines.append("Warnings:")
             lines.extend(f"- {warning}" for warning in warnings)

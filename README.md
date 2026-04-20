@@ -60,6 +60,7 @@ The app scans profile folders such as:
 - Choose backup destination folder manually
 - Create compressed ZIP archives
 - Optional password-based AES ZIP encryption
+- Optional offline recovery enrollment for encrypted backups
 - Create a per-backup folder containing the ZIP archive and `manifest.json`
 - Embed `manifest.json` inside the archive too
 - Dry-run backup and dry-run restore
@@ -151,8 +152,17 @@ powershell -ExecutionPolicy Bypass -File .\build_exe.ps1 -PythonPath "C:\full\pa
 5. Optionally enable exclusion of common cookies, sessions, and login databases.
 6. Choose a destination folder.
 7. Optionally enter a password to encrypt the archive.
-8. Use `Preview Backup` to dry-run first.
-9. Use `Create Backup` when the preview looks right.
+8. Optionally enable the offline recovery key and emergency code kit.
+9. Optionally enter a password hint.
+10. Use `Preview Backup` to dry-run first.
+11. Use `Create Backup` when the preview looks right.
+
+If recovery enrollment is enabled for an encrypted backup, the backup output folder will also contain:
+
+- `recovery_key.json`
+- `emergency_codes.txt`
+
+Store those files separately from the backup ZIP archive.
 
 ### Restore
 
@@ -188,6 +198,10 @@ The manifest includes:
 - browser version if detected
 - archive name
 - whether encryption was used
+- whether offline recovery enrollment was enabled
+- recovery artifact names
+- password hint if set
+- hashes for the enrolled recovery key and emergency codes
 - notes and warnings
 
 ## Example UI Layout
@@ -207,6 +221,7 @@ The app uses a single desktop window with:
 - `Exclude cookies / sessions / login tokens` mode excludes common known stores, but exact file names and storage locations vary by Chromium version and by extension.
 - Some extensions keep data in storage locations that are not easy to classify safely without making risky assumptions.
 - The tool does not decrypt browser-protected secrets and does not attempt to bypass browser security.
+- Recovery enrollment only prepares local recovery material for future password reset features. The current release does not yet include the reset flow itself.
 - The tool expects standard Windows profile locations. Non-standard portable installs are out of scope unless their profile folders are copied manually outside the app.
 
 ## Notes for Non-Developers
