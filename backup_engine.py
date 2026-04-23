@@ -10,7 +10,6 @@ from browser_detection import BrowserInstall, validate_browser_closed
 from encryption import create_archive
 from manifest import BackupManifest, build_manifest, manifest_to_json, write_manifest
 from profile_discovery import BrowserProfile
-from recovery import RecoveryEnrollment, create_recovery_enrollment, write_recovery_artifacts
 
 
 LOGGER = logging.getLogger(__name__)
@@ -88,8 +87,6 @@ class BackupOptions:
     backup_scope: str
     exclude_sensitive_data: bool
     password: str | None = None
-    enroll_recovery_material: bool = False
-    password_hint: str | None = None
     dry_run: bool = False
 
 
@@ -100,17 +97,10 @@ class BackupResult:
     manifest: BackupManifest
     copied_files: list[str]
     warnings: list[str]
-    recovery_key_path: Path | None
-    emergency_codes_path: Path | None
     dry_run: bool
 
 
 def create_backup(options: BackupOptions) -> BackupResult:
-    if options.enroll_recovery_material and not options.password:
-        raise RuntimeError(
-            "Recovery enrollment requires an archive password. Set a backup password first."
-        )
-
     # Do not copy live profile state. Even read-only backups can be inconsistent if Chromium is
     # still writing SQLite or session files during the archive step.
     problems = validate_browser_closed(options.browser, options.profile.path)
@@ -130,13 +120,6 @@ def create_backup(options: BackupOptions) -> BackupResult:
     archive_name = (
         f"{options.browser.key}_{_sanitize_name(options.profile.profile_dir_name)}_{timestamp}.zip"
     )
-    recovery_enrollment: RecoveryEnrollment | None = None
-    if options.enroll_recovery_material:
-        recovery_enrollment = create_recovery_enrollment()
-        plan.warnings.append(
-            "Recovery enrollment is enabled. A recovery key file and emergency recovery codes"
-            " will be written next to the backup archive. Store them separately from the archive."
-        )
     manifest = build_manifest(
         browser_name=options.browser.display_name,
         browser_key=options.browser.key,
@@ -150,15 +133,6 @@ def create_backup(options: BackupOptions) -> BackupResult:
         archive_name=archive_name,
         encrypted=bool(options.password),
         notes=plan.warnings,
-        recovery_enrolled=bool(recovery_enrollment),
-        recovery_artifacts=recovery_enrollment.artifact_names if recovery_enrollment else [],
-        password_hint=options.password_hint.strip() if options.password_hint else None,
-        recovery_key_sha256=(
-            recovery_enrollment.recovery_key_sha256 if recovery_enrollment else None
-        ),
-        emergency_code_sha256=(
-            recovery_enrollment.emergency_code_sha256 if recovery_enrollment else []
-        ),
     )
 
     if options.dry_run:
@@ -169,8 +143,6 @@ def create_backup(options: BackupOptions) -> BackupResult:
             manifest=manifest,
             copied_files=[item.relative_path for item in plan.items],
             warnings=plan.warnings,
-            recovery_key_path=None,
-            emergency_codes_path=None,
             dry_run=True,
         )
 
@@ -188,17 +160,6 @@ def create_backup(options: BackupOptions) -> BackupResult:
         password=options.password,
     )
     write_manifest(manifest, manifest_path)
-    recovery_key_path = None
-    emergency_codes_path = None
-    if recovery_enrollment:
-        recovery_key_path, emergency_codes_path = write_recovery_artifacts(
-            output_dir=archive_container,
-            archive_name=archive_name,
-            browser_name=options.browser.display_name,
-            profile_name=options.profile.profile_name,
-            password_hint=options.password_hint.strip() if options.password_hint else None,
-            enrollment=recovery_enrollment,
-        )
     LOGGER.info("Backup finished successfully. Manifest written to %s", manifest_path)
 
     return BackupResult(
@@ -207,8 +168,6 @@ def create_backup(options: BackupOptions) -> BackupResult:
         manifest=manifest,
         copied_files=[item.relative_path for item in plan.items],
         warnings=plan.warnings,
-        recovery_key_path=recovery_key_path,
-        emergency_codes_path=emergency_codes_path,
         dry_run=False,
     )
 

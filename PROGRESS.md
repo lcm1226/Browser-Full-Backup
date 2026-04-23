@@ -16,4 +16,3 @@
 - Added quick `Open` actions for the backup destination, selected restore archive folder, and the most recently created backup folder.
 - Added a recent backup archive picker on the Restore tab so recently used or newly created ZIP files can be reused without browsing again.
 - Improved recent backup entries so they show the file name, modified time, and containing folder instead of only the raw ZIP path.
-- Started failsafe Phase 1 by adding optional offline recovery enrollment for encrypted backups, including a recovery key file, emergency recovery codes, and password hint metadata.

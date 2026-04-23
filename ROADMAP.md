@@ -35,10 +35,6 @@ Implemented now:
 - Verified exe build and launch
 - Restored profiles are now registered back into Chrome Local State
 - Double-click CMD launcher for local use
-- Phase 1 recovery enrollment for encrypted backups:
-  - offline recovery key file generation
-  - emergency recovery code generation
-  - password hint storage in manifest metadata
 
 Still pending:
 
@@ -46,7 +42,6 @@ Still pending:
 - Cleanup and refinement of profile naming / mojibake display for some existing profiles
 - Broader cross-browser validation for Brave and Edge
 - Automated test coverage for backup/restore flows
-- Phase 2 local password reset flow that uses the enrolled recovery material
 
 ## Near-Term Execution Checklist
 
@@ -216,6 +211,6 @@ Testing work:
 
 The best next implementation step is:
 
-1. Finish the final user-facing acceptance pass with the latest exe.
-2. Add the Phase 2 local password reset flow for already-enrolled recovery material.
+1. Finish Windows runtime validation.
+2. Add local recovery enrollment with a recovery key file and emergency codes.
 3. Delay any Gmail or Google-account recovery concept until the product explicitly supports an opt-in connected mode.

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -21,11 +21,6 @@ class BackupManifest:
     archive_name: str
     encrypted: bool
     notes: list[str]
-    recovery_enrolled: bool = False
-    recovery_artifacts: list[str] = field(default_factory=list)
-    password_hint: str | None = None
-    recovery_key_sha256: str | None = None
-    emergency_code_sha256: list[str] = field(default_factory=list)
 
 
 def build_manifest(
@@ -42,11 +37,6 @@ def build_manifest(
     archive_name: str,
     encrypted: bool,
     notes: list[str] | None = None,
-    recovery_enrolled: bool = False,
-    recovery_artifacts: list[str] | None = None,
-    password_hint: str | None = None,
-    recovery_key_sha256: str | None = None,
-    emergency_code_sha256: list[str] | None = None,
 ) -> BackupManifest:
     return BackupManifest(
         browser_name=browser_name,
@@ -62,11 +52,6 @@ def build_manifest(
         archive_name=archive_name,
         encrypted=encrypted,
         notes=notes or [],
-        recovery_enrolled=recovery_enrolled,
-        recovery_artifacts=recovery_artifacts or [],
-        password_hint=password_hint,
-        recovery_key_sha256=recovery_key_sha256,
-        emergency_code_sha256=emergency_code_sha256 or [],
     )
 
 
