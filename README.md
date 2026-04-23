@@ -71,18 +71,21 @@ The app scans profile folders such as:
   - an existing profile folder
   - a new profile folder under the selected browser's user data directory
 - Automatic rollback snapshot when restoring over a non-empty destination profile
+- Local Profile Lock tab for password-gated launches through this app
 - User-readable logging to the window and to `chromium_profile_backup.log`
 
 ## Project Structure
 
 - `browser_detection.py`
 - `profile_discovery.py`
+- `profile_lock.py`
 - `backup_engine.py`
 - `restore_engine.py`
 - `manifest.py`
 - `encryption.py`
 - `ui.py`
 - `main.py`
+- `test_profile_lock.py`
 
 ## Requirements
 
@@ -167,6 +170,26 @@ powershell -ExecutionPolicy Bypass -File .\build_exe.ps1 -PythonPath "C:\full\pa
 7. Review overwrite warnings carefully.
 8. Run restore only after confirming the preview.
 
+### Profile Lock
+
+Use this when you want a local password prompt before launching a selected browser profile
+from this tool.
+
+1. Open the `Profile Lock` tab.
+2. Choose a browser and profile, for example Chrome `Profile 2 | test`.
+3. Enter and confirm a profile-lock password.
+4. Click `Set / Change Password`.
+5. Later, enter the password and click `Unlock and Launch Profile`.
+
+Important: this is a convenience gate inside this app only. It does not lock Chrome's
+native profile picker, direct browser shortcuts, Windows user accounts, or the profile
+folder on disk. Use separate Windows accounts or full-disk/profile-folder encryption if
+you need a real access-control boundary.
+
+Profile Lock stores local salted password hashes in `profile_locks.json`. When running
+from source, that file lives in the project folder. When running the packaged exe, it is
+stored next to `ChromiumProfileBackupTool.exe`.
+
 ## Manifest Format
 
 Each backup writes:
@@ -197,6 +220,7 @@ The app uses a single desktop window with:
 - a top warning banner explaining that the browser must be closed and that the tool is local-only
 - a `Backup` tab with browser selection, profile selection, scope controls, destination folder picker, password box, and preview/create buttons
 - a `Restore` tab with archive picker, password box, destination browser selector, restore target selector, preview button, and restore button
+- a `Profile Lock` tab with browser/profile selection, local password setup, lock removal, and password-gated launch
 - a lower activity log pane showing readable progress and errors
 
 ## Known Limitations
@@ -207,6 +231,7 @@ The app uses a single desktop window with:
 - `Exclude cookies / sessions / login tokens` mode excludes common known stores, but exact file names and storage locations vary by Chromium version and by extension.
 - Some extensions keep data in storage locations that are not easy to classify safely without making risky assumptions.
 - The tool does not decrypt browser-protected secrets and does not attempt to bypass browser security.
+- Profile Lock is not a Chromium-native password feature. Chrome's own profile picker can still open profiles unless you separately restrict access at the Windows account or filesystem level.
 - The tool expects standard Windows profile locations. Non-standard portable installs are out of scope unless their profile folders are copied manually outside the app.
 
 ## Notes for Non-Developers

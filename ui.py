@@ -4,6 +4,7 @@ import ctypes
 import json
 import logging
 import os
+import sys
 import tkinter as tk
 import winreg
 from dataclasses import dataclass
@@ -14,10 +15,17 @@ from tkinter import filedialog, messagebox, ttk
 from backup_engine import SCOPE_FULL, SCOPE_SETTINGS_ONLY, BackupOptions, create_backup
 from browser_detection import BrowserInstall, detect_installed_browsers
 from profile_discovery import BrowserProfile, discover_profiles
+from profile_lock import ProfileLockStore, launch_profile
 from restore_engine import RestoreOptions, preview_restore, restore_backup
 
 
 LOGGER = logging.getLogger(__name__)
+
+
+def _app_runtime_dir() -> Path:
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent
 
 
 def _get_windows_theme_mode() -> str:
@@ -102,7 +110,11 @@ class ChromiumProfileBackupApp:
         self._resize_origin_y = 0
         self._resize_origin_width = 0
         self._resize_origin_height = 0
-        self.state_path = Path(__file__).resolve().parent / "ui_state.json"
+        self.runtime_dir = _app_runtime_dir()
+        self.state_path = self.runtime_dir / "ui_state.json"
+        self.profile_lock_store = ProfileLockStore(
+            self.runtime_dir / "profile_locks.json"
+        )
         self.loaded_state = self._load_ui_state()
         self.style = ttk.Style(root)
         self.theme_mode = "light"
@@ -113,6 +125,7 @@ class ChromiumProfileBackupApp:
         self.browser_map: dict[str, BrowserInstall] = {}
         self.backup_profiles: list[BrowserProfile] = []
         self.restore_profiles: list[BrowserProfile] = []
+        self.lock_profiles: list[BrowserProfile] = []
 
         self.backup_browser_var = tk.StringVar()
         self.backup_profile_var = tk.StringVar()
@@ -133,6 +146,12 @@ class ChromiumProfileBackupApp:
         self.last_backup_folder: Path | None = None
         self.recent_backup_archives: list[str] = []
         self.recent_backup_labels: dict[str, str] = {}
+
+        self.lock_browser_var = tk.StringVar()
+        self.lock_profile_var = tk.StringVar()
+        self.lock_password_var = tk.StringVar()
+        self.lock_confirm_password_var = tk.StringVar()
+        self.lock_status_var = tk.StringVar(value="Select a profile to view lock status.")
 
         self._build_ui()
         self._apply_theme(force=True)
@@ -300,7 +319,12 @@ class ChromiumProfileBackupApp:
 
     def _apply_text_widget_theme(self) -> None:
         palette = self.palette
-        for widget_name in ("backup_preview_text", "restore_preview_text", "log_text"):
+        for widget_name in (
+            "backup_preview_text",
+            "restore_preview_text",
+            "lock_details_text",
+            "log_text",
+        ):
             widget = getattr(self, widget_name, None)
             if widget is None:
                 continue
@@ -435,11 +459,14 @@ class ChromiumProfileBackupApp:
 
         backup_tab = ttk.Frame(notebook, padding=12)
         restore_tab = ttk.Frame(notebook, padding=12)
+        lock_tab = ttk.Frame(notebook, padding=12)
         notebook.add(backup_tab, text="Backup")
         notebook.add(restore_tab, text="Restore")
+        notebook.add(lock_tab, text="Profile Lock")
 
         self._build_backup_tab(backup_tab)
         self._build_restore_tab(restore_tab)
+        self._build_profile_lock_tab(lock_tab)
 
         log_frame = ttk.LabelFrame(content_parent, text="Activity Log", padding=8)
         log_frame.pack(fill="both", expand=False, padx=12, pady=(0, 12))
@@ -786,6 +813,104 @@ class ChromiumProfileBackupApp:
         self.restore_preview_text = tk.Text(preview_frame, wrap="word", state="disabled")
         self.restore_preview_text.pack(fill="both", expand=True)
 
+    def _build_profile_lock_tab(self, parent: ttk.Frame) -> None:
+        notice = ttk.Label(
+            parent,
+            text=(
+                "Profile Lock is a local convenience gate for launching a browser profile through"
+                " this app. It does not lock Chrome's native profile picker, direct shortcuts,"
+                " Windows accounts, or filesystem access."
+            ),
+            wraplength=1040,
+            justify="left",
+            style="Warning.TLabel",
+        )
+        notice.pack(fill="x", pady=(0, 12))
+
+        controls = ttk.Frame(parent)
+        controls.pack(fill="x", expand=False)
+        controls.columnconfigure(1, weight=1)
+
+        ttk.Button(
+            controls, text="Detect Installed Browsers", command=self.refresh_browser_detection
+        ).grid(row=0, column=0, sticky="w", pady=(0, 10))
+
+        ttk.Label(controls, text="Browser").grid(row=1, column=0, sticky="w", pady=4)
+        self.lock_browser_combo = ttk.Combobox(
+            controls,
+            textvariable=self.lock_browser_var,
+            state="readonly",
+            width=40,
+        )
+        self.lock_browser_combo.grid(row=1, column=1, sticky="ew", pady=4)
+        self.lock_browser_combo.bind("<<ComboboxSelected>>", self._on_lock_browser_selected)
+
+        ttk.Label(controls, text="Profile").grid(row=2, column=0, sticky="w", pady=4)
+        self.lock_profile_combo = ttk.Combobox(
+            controls,
+            textvariable=self.lock_profile_var,
+            state="readonly",
+            width=50,
+        )
+        self.lock_profile_combo.grid(row=2, column=1, sticky="ew", pady=4)
+        self.lock_profile_combo.bind("<<ComboboxSelected>>", self._on_lock_profile_selected)
+
+        ttk.Label(controls, text="Status").grid(row=3, column=0, sticky="w", pady=4)
+        ttk.Label(
+            controls,
+            textvariable=self.lock_status_var,
+            wraplength=820,
+            justify="left",
+        ).grid(row=3, column=1, sticky="ew", pady=4)
+
+        ttk.Label(controls, text="Password").grid(row=4, column=0, sticky="w", pady=4)
+        ttk.Entry(
+            controls,
+            textvariable=self.lock_password_var,
+            show="*",
+        ).grid(row=4, column=1, sticky="ew", pady=4)
+
+        ttk.Label(controls, text="Confirm Password").grid(row=5, column=0, sticky="w", pady=4)
+        ttk.Entry(
+            controls,
+            textvariable=self.lock_confirm_password_var,
+            show="*",
+        ).grid(row=5, column=1, sticky="ew", pady=4)
+
+        actions = ttk.Frame(controls)
+        actions.grid(row=6, column=1, sticky="w", pady=(8, 0))
+        ttk.Button(actions, text="Set / Change Password", command=self.set_profile_lock).pack(
+            side="left"
+        )
+        ttk.Button(actions, text="Remove Lock", command=self.remove_profile_lock).pack(
+            side="left", padx=(8, 0)
+        )
+        ttk.Button(actions, text="Unlock and Launch Profile", command=self.unlock_and_launch_profile).pack(
+            side="left", padx=(8, 0)
+        )
+
+        details_frame = ttk.LabelFrame(parent, text="Important Limitations", padding=8)
+        details_frame.pack(fill="both", expand=True, pady=(12, 0))
+        self.lock_details_text = tk.Text(details_frame, height=12, wrap="word", state="disabled")
+        self.lock_details_text.pack(fill="both", expand=True)
+        self._set_text(
+            self.lock_details_text,
+            "\n".join(
+                [
+                    "What this does:",
+                    "- Stores a local salted password hash for the selected browser profile.",
+                    "- Requires that password before this app launches the selected profile.",
+                    "- Keeps the lock file local to this project folder.",
+                    "",
+                    "What this does not do:",
+                    "- It does not modify or bypass Chromium security.",
+                    "- It does not encrypt the browser profile folder.",
+                    "- It does not prevent launching the same profile from Chrome's own profile picker or another shortcut.",
+                    "- It does not recover forgotten profile-lock passwords.",
+                ]
+            ),
+        )
+
     def _configure_logging(self) -> None:
         root_logger = logging.getLogger()
         root_logger.setLevel(logging.INFO)
@@ -795,7 +920,7 @@ class ChromiumProfileBackupApp:
             widget_handler.setFormatter(logging.Formatter("%(asctime)s - %(message)s"))
             root_logger.addHandler(widget_handler)
 
-        log_path = Path(__file__).resolve().parent / "chromium_profile_backup.log"
+        log_path = self.runtime_dir / "chromium_profile_backup.log"
         if not any(
             isinstance(handler, logging.FileHandler)
             and Path(getattr(handler, "baseFilename", "")) == log_path
@@ -814,18 +939,24 @@ class ChromiumProfileBackupApp:
 
         self.backup_browser_combo["values"] = browser_values
         self.restore_browser_combo["values"] = browser_values
+        self.lock_browser_combo["values"] = browser_values
 
         if browser_values:
             self.backup_browser_var.set(browser_values[0])
             self.restore_browser_var.set(browser_values[0])
+            self.lock_browser_var.set(browser_values[0])
             self._on_backup_browser_selected()
             self._on_restore_browser_selected()
+            self._on_lock_browser_selected()
             LOGGER.info("Detected %s supported browser installation(s).", len(browser_values))
         else:
             self.backup_browser_var.set("")
             self.restore_browser_var.set("")
+            self.lock_browser_var.set("")
             self.backup_profile_combo["values"] = []
             self.restore_existing_combo["values"] = []
+            self.lock_profile_combo["values"] = []
+            self.lock_status_var.set("No supported browser profiles were detected.")
             LOGGER.warning(
                 "No supported Chromium browsers were detected in the standard Windows locations."
             )
@@ -859,6 +990,10 @@ class ChromiumProfileBackupApp:
                 ),
                 "new_profile_name": self.restore_new_profile_var.get().strip(),
                 "dry_run": bool(self.restore_dry_run_var.get()),
+            },
+            "profile_lock": {
+                "browser_key": self._selected_browser_key(self.lock_browser_var.get()),
+                "profile_dir_name": self._selected_profile_dir_name(self.lock_profile_var.get()),
             },
             "recent_backups": self.recent_backup_archives[:10],
         }
@@ -938,6 +1073,20 @@ class ChromiumProfileBackupApp:
                 profiles=self.restore_profiles,
             )
             self._toggle_restore_profile_mode()
+
+        profile_lock_state = self.loaded_state.get("profile_lock")
+        if isinstance(profile_lock_state, dict):
+            self._restore_browser_selection(
+                combo_var=self.lock_browser_var,
+                browser_key=profile_lock_state.get("browser_key"),
+                on_selected=self._on_lock_browser_selected,
+            )
+            self._restore_profile_selection(
+                combo_var=self.lock_profile_var,
+                profile_dir_name=profile_lock_state.get("profile_dir_name"),
+                profiles=self.lock_profiles,
+            )
+            self._update_profile_lock_status()
 
         recent_backups = self.loaded_state.get("recent_backups")
         if isinstance(recent_backups, list):
@@ -1185,6 +1334,17 @@ class ChromiumProfileBackupApp:
                 return profile
         raise RuntimeError("The selected source profile could not be resolved.")
 
+    def _selected_lock_profile(self) -> BrowserProfile:
+        selected = self.lock_profile_var.get().strip()
+        if not selected:
+            raise RuntimeError("Choose a profile on the Profile Lock tab first.")
+
+        profile_dir = selected.split(" | ", 1)[0]
+        for profile in self.lock_profiles:
+            if profile.profile_dir_name == profile_dir:
+                return profile
+        raise RuntimeError("The selected profile lock target could not be resolved.")
+
     def _on_backup_browser_selected(self, _event=None) -> None:
         browser = self.browser_map.get(self.backup_browser_var.get())
         if browser is None:
@@ -1213,6 +1373,116 @@ class ChromiumProfileBackupApp:
         self.restore_existing_combo["values"] = values
         self.restore_existing_profile_var.set(values[0] if values else "")
         self._toggle_restore_profile_mode()
+
+    def _on_lock_browser_selected(self, _event=None) -> None:
+        browser = self.browser_map.get(self.lock_browser_var.get())
+        if browser is None:
+            self.lock_profile_combo["values"] = []
+            self.lock_status_var.set("Select a detected browser first.")
+            return
+
+        self.lock_profiles = discover_profiles(browser)
+        values = [
+            f"{profile.profile_dir_name} | {profile.profile_name}"
+            for profile in self.lock_profiles
+        ]
+        self.lock_profile_combo["values"] = values
+        self.lock_profile_var.set(values[0] if values else "")
+        self._update_profile_lock_status()
+
+    def _on_lock_profile_selected(self, _event=None) -> None:
+        self._update_profile_lock_status()
+
+    def _update_profile_lock_status(self) -> None:
+        try:
+            browser = self._selected_browser(self.lock_browser_var.get())
+            profile = self._selected_lock_profile()
+        except Exception:
+            self.lock_status_var.set("Select a profile to view lock status.")
+            return
+
+        if self.profile_lock_store.is_locked(browser.key, profile.profile_dir_name):
+            status = "Locked: this app will require the password before launching this profile."
+        else:
+            status = "Unlocked: this app can launch this profile without a password."
+        self.lock_status_var.set(f"{profile.profile_dir_name} | {profile.profile_name} - {status}")
+
+    def set_profile_lock(self) -> None:
+        self._run_ui_action(self._set_profile_lock, "Set Profile Lock Failed")
+
+    def _set_profile_lock(self) -> None:
+        browser = self._selected_browser(self.lock_browser_var.get())
+        profile = self._selected_lock_profile()
+        password = self.lock_password_var.get()
+        confirm_password = self.lock_confirm_password_var.get()
+        if password != confirm_password:
+            raise RuntimeError("The password and confirmation do not match.")
+
+        self.profile_lock_store.set_password(browser.key, profile.profile_dir_name, password)
+        self.lock_password_var.set("")
+        self.lock_confirm_password_var.set("")
+        self._update_profile_lock_status()
+        self._save_ui_state()
+        LOGGER.info(
+            "Profile lock was set for %s %s.",
+            browser.display_name,
+            profile.profile_dir_name,
+        )
+        messagebox.showinfo(
+            "Profile Lock Set",
+            "The local app launcher password gate has been set for this profile.\n\n"
+            "Remember: Chrome's native profile picker and direct shortcuts are not locked.",
+        )
+
+    def remove_profile_lock(self) -> None:
+        self._run_ui_action(self._remove_profile_lock, "Remove Profile Lock Failed")
+
+    def _remove_profile_lock(self) -> None:
+        browser = self._selected_browser(self.lock_browser_var.get())
+        profile = self._selected_lock_profile()
+        if self.profile_lock_store.is_locked(browser.key, profile.profile_dir_name):
+            if not self.profile_lock_store.verify_password(
+                browser.key,
+                profile.profile_dir_name,
+                self.lock_password_var.get(),
+            ):
+                raise RuntimeError("Enter the current profile lock password to remove the lock.")
+
+        self.profile_lock_store.remove_lock(browser.key, profile.profile_dir_name)
+        self.lock_password_var.set("")
+        self.lock_confirm_password_var.set("")
+        self._update_profile_lock_status()
+        self._save_ui_state()
+        LOGGER.info(
+            "Profile lock was removed for %s %s.",
+            browser.display_name,
+            profile.profile_dir_name,
+        )
+        messagebox.showinfo("Profile Lock Removed", "The local profile lock was removed.")
+
+    def unlock_and_launch_profile(self) -> None:
+        self._run_ui_action(self._unlock_and_launch_profile, "Unlock and Launch Failed")
+
+    def _unlock_and_launch_profile(self) -> None:
+        browser = self._selected_browser(self.lock_browser_var.get())
+        profile = self._selected_lock_profile()
+        if self.profile_lock_store.is_locked(browser.key, profile.profile_dir_name):
+            if not self.profile_lock_store.verify_password(
+                browser.key,
+                profile.profile_dir_name,
+                self.lock_password_var.get(),
+            ):
+                raise RuntimeError("Incorrect profile lock password.")
+
+        launch_profile(browser, profile)
+        self.lock_password_var.set("")
+        self.lock_confirm_password_var.set("")
+        self._save_ui_state()
+        LOGGER.info(
+            "Launched %s profile %s through the app profile lock gate.",
+            browser.display_name,
+            profile.profile_dir_name,
+        )
 
     def _toggle_restore_profile_mode(self) -> None:
         existing_enabled = self.restore_profile_mode_var.get() == "existing"

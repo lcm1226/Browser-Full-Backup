@@ -9,6 +9,7 @@ verification_output/
 
 chromium_profile_backup.log
 ui_state.json
+profile_locks.json
 ChromiumProfileBackupTool.spec
 
 Codex Skills.lnk

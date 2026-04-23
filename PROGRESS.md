@@ -16,3 +16,11 @@
 - Added quick `Open` actions for the backup destination, selected restore archive folder, and the most recently created backup folder.
 - Added a recent backup archive picker on the Restore tab so recently used or newly created ZIP files can be reused without browsing again.
 - Improved recent backup entries so they show the file name, modified time, and containing folder instead of only the raw ZIP path.
+
+## 2026-04-23
+
+- Reverted the backup-password recovery enrollment implementation because the requested password feature was clarified as profile-launch access gating, not backup archive recovery.
+- Added a local `Profile Lock` tab that stores salted password hashes in `profile_locks.json` and requires the password before this app launches a selected browser profile.
+- Kept the feature explicitly local-only and documented that it is an app-controlled guarded launcher, not a Chrome-native profile picker lock or filesystem security boundary.
+- Added a small `unittest` coverage file for profile lock set/verify/remove behavior and plaintext-password avoidance.
+- Adjusted runtime state paths so the packaged exe stores `profile_locks.json`, `ui_state.json`, and logs next to the exe instead of a PyInstaller temporary folder.
