@@ -10,19 +10,30 @@ This project is designed for:
 
 It is designed for personal backup and restore only. It does not send data over email, HTTP, cloud storage, webhooks, or any other network path.
 
-## Current Validation Scope
+## Repository Status
 
-For the current verification workflow on this machine, only these Chrome profiles are in scope:
+Installation status:
 
-- `Profile 2` with the friendly name `test`
-- `Profile 98`, which was created as a restore target for `test`
+- Source execution is supported with `run_windows.ps1` or `py -3 main.py`.
+- Windows exe packaging is supported through `build_exe.ps1`.
+- No installer, MSI, or signed binary is published in this repository.
 
-Operational guardrail for the current validation phase:
+Release status:
 
-- Do not modify other Chrome profiles
-- Do not modify Brave or Edge profiles
-- Do not back up, restore, or copy data from non-test profiles
-- Only inspect non-test profile metadata when strictly necessary to keep the app safe and understandable
+- As of August 17, 2026, no GitHub Release is published.
+- A Release should be created only after a versioned tag and downloadable build artifact are prepared.
+
+Verification status:
+
+- Local Windows source-run and exe-launch smoke verification have been completed.
+- `test_profile_lock.py` covers profile lock set/verify/remove behavior.
+- Backup and restore validation has been exercised on maintainer-owned Chrome test profiles only.
+
+Not yet verified:
+
+- Brave end-to-end backup and restore
+- Edge end-to-end backup and restore
+- Automated GUI end-to-end coverage
 
 ## Safety Model
 
@@ -100,7 +111,7 @@ The app scans profile folders such as:
 powershell -ExecutionPolicy Bypass -File .\run_windows.ps1
 ```
 
-또는 프로젝트 폴더에서 [Launch Chromium Profile Backup Tool.cmd](</C:/Users/user/Desktop/Chromium 프로파일 백업&복원 도구/Launch Chromium Profile Backup Tool.cmd:1>)를 더블클릭해도 됩니다.
+또는 프로젝트 폴더에서 `Launch Chromium Profile Backup Tool.cmd`를 더블클릭해도 됩니다.
 
 이 스크립트는 다음을 자동으로 처리합니다.
 
@@ -244,3 +255,4 @@ pyinstaller --noconfirm --onefile --windowed main.py
 ```
 
 That is optional. The application works directly with Python as-is.
+

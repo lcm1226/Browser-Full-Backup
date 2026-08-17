@@ -24,3 +24,11 @@
 - Kept the feature explicitly local-only and documented that it is an app-controlled guarded launcher, not a Chrome-native profile picker lock or filesystem security boundary.
 - Added a small `unittest` coverage file for profile lock set/verify/remove behavior and plaintext-password avoidance.
 - Adjusted runtime state paths so the packaged exe stores `profile_locks.json`, `ui_state.json`, and logs next to the exe instead of a PyInstaller temporary folder.
+
+## 2026-08-17
+
+- Audited the public GitHub repository state before making changes.
+- Updated README to remove a local absolute path and replace machine-specific validation scope with factual installation, release, and verification status.
+- Intentionally did not create a GitHub Release because the repository does not yet publish a versioned tag or downloadable release artifact.
+- Prepared the repository for public cleanup by aligning documentation with the actual supported and unverified states.
+
